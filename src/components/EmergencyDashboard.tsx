@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, AlertOctagon, Clock, MapPin, Battery, Thermometer, CheckCircle } from 'lucide-react';
+import { AlertTriangle, AlertOctagon, Clock, MapPin, Battery, Thermometer, CheckCircle, Flame } from 'lucide-react';
 import type { EmergencyIncident } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -14,15 +14,39 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
   onUpdateIncident,
   onFocusLocation
 }) => {
-  // Filter incidents by status
-  const pendingIncidents = incidents.filter(i => i.status === 'pending');
-  const respondedIncidents = incidents.filter(i => i.status === 'responded');
-  const resolvedIncidents = incidents.filter(i => i.status === 'resolved')
-    .sort((a, b) => {
-      const dateA = new Date(b.responseDetails?.resolvedAt || b.timestamp);
-      const dateB = new Date(a.responseDetails?.resolvedAt || a.timestamp);
-      return dateA.getTime() - dateB.getTime();
-    });
+  // Organize incidents by status and sort by temperature
+  const organizedIncidents = React.useMemo(() => {
+    // Get pending incidents (highest priority)
+    const pending = incidents
+      .filter(i => i.status === 'pending')
+      .sort((a, b) => b.temperature - a.temperature);
+    
+    // Get responded incidents (not in pending)
+    const responded = incidents
+      .filter(i => i.status === 'responded')
+      .sort((a, b) => b.temperature - a.temperature);
+    
+    // Get most recent resolved incidents
+    const resolved = incidents
+      .filter(i => i.status === 'resolved')
+      .sort((a, b) => {
+        const dateA = new Date(b.responseDetails?.resolvedAt || b.timestamp);
+        const dateB = new Date(a.responseDetails?.resolvedAt || a.timestamp);
+        return dateA.getTime() - dateB.getTime();
+      })
+      .slice(0, 5); // Only show last 5 resolved incidents
+
+    return {
+      pending,
+      responded,
+      resolved
+    };
+  }, [incidents]);
+
+  // Count active incidents (pending + responded)
+  const activeIncidentsCount = React.useMemo(() => {
+    return organizedIncidents.pending.length + organizedIncidents.responded.length;
+  }, [organizedIncidents]);
 
   const handleRespond = (incident: EmergencyIncident) => {
     onUpdateIncident({
@@ -50,21 +74,47 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
     onFocusLocation(incident.location.latitude, incident.location.longitude);
   };
 
+  // Helper function to render temperature with appropriate color and icon
+  const renderTemperature = (temp: number) => {
+    let color = 'text-gray-500';
+    let icon = <Thermometer className="w-4 h-4" />;
+    
+    if (temp >= 150) {
+      color = 'text-red-600 font-bold';
+      icon = <AlertOctagon className="w-4 h-4" />;
+    } else if (temp > 45) {
+      color = 'text-red-500';
+      icon = <Flame className="w-4 h-4" />;
+    }
+    
+    return (
+      <div className={`flex items-center gap-2 ${color}`}>
+        {icon}
+        <span className="text-sm">
+          {temp.toFixed(1)}°C
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
       <div className="flex items-center gap-2 mb-6">
         <AlertOctagon className="w-6 h-6 text-red-500" />
         <h2 className="text-2xl font-bold">Emergency Response Center</h2>
+        <div className="ml-auto text-sm text-gray-500">
+          {activeIncidentsCount} Active Cases
+        </div>
       </div>
 
       {/* Active (Pending) Incidents */}
       <div className="mb-8">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-red-500" />
-          Active Incidents ({pendingIncidents.length})
+          Pending Response ({organizedIncidents.pending.length})
         </h3>
         <div className="space-y-4">
-          {pendingIncidents.map(incident => (
+          {organizedIncidents.pending.map(incident => (
             <div
               key={incident.id}
               className="border border-red-200 rounded-lg p-4 bg-red-50"
@@ -82,12 +132,7 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="flex items-center gap-2">
-                  <Thermometer className="w-4 h-4 text-red-500" />
-                  <span className="text-sm">
-                    {incident.temperature.toFixed(1)}°C
-                  </span>
-                </div>
+                {renderTemperature(incident.temperature)}
                 <div className="flex items-center gap-2">
                   <Battery className="w-4 h-4 text-red-500" />
                   <span className="text-sm">{incident.batteryLevel}%</span>
@@ -126,7 +171,7 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
               </div>
             </div>
           ))}
-          {pendingIncidents.length === 0 && (
+          {organizedIncidents.pending.length === 0 && (
             <div className="text-gray-500 text-center py-4">
               No pending incidents
             </div>
@@ -135,14 +180,14 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
       </div>
 
       {/* In Progress (Responded) Incidents */}
-      {respondedIncidents.length > 0 && (
+      {organizedIncidents.responded.length > 0 && (
         <div className="mb-8">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Clock className="w-5 h-5 text-orange-500" />
-            In Progress ({respondedIncidents.length})
+            In Progress ({organizedIncidents.responded.length})
           </h3>
           <div className="space-y-4">
-            {respondedIncidents.map(incident => (
+            {organizedIncidents.responded.map(incident => (
               <div
                 key={incident.id}
                 className="border border-orange-200 rounded-lg p-4 bg-orange-50"
@@ -160,12 +205,7 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Thermometer className="w-4 h-4 text-orange-500" />
-                    <span className="text-sm">
-                      {incident.temperature.toFixed(1)}°C
-                    </span>
-                  </div>
+                  {renderTemperature(incident.temperature)}
                   <div className="flex items-center gap-2">
                     <Battery className="w-4 h-4 text-orange-500" />
                     <span className="text-sm">{incident.batteryLevel}%</span>
@@ -212,10 +252,10 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
       <div>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <CheckCircle className="w-5 h-5 text-green-500" />
-          Recent Resolved Incidents ({resolvedIncidents.length})
+          Recent Resolved Incidents ({organizedIncidents.resolved.length})
         </h3>
         <div className="space-y-2">
-          {resolvedIncidents.slice(0, 5).map(incident => (
+          {organizedIncidents.resolved.map(incident => (
             <div
               key={incident.id}
               className="border border-gray-200 rounded-lg p-3 bg-gray-50"
@@ -237,7 +277,7 @@ export const EmergencyDashboard: React.FC<EmergencyDashboardProps> = ({
               </div>
             </div>
           ))}
-          {resolvedIncidents.length === 0 && (
+          {organizedIncidents.resolved.length === 0 && (
             <div className="text-gray-500 text-center py-4">
               No resolved incidents
             </div>

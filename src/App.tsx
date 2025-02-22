@@ -35,7 +35,8 @@ const VEHICLE_MODELS = {
 
 // Emergency response thresholds
 const EMERGENCY_THRESHOLDS = {
-  CRITICAL_TEMP: 47, // °C (increased from 45)
+  THERMAL_RUNAWAY: 150, // °C (new threshold for thermal runaway)
+  CRITICAL_TEMP: 47, // °C (for high but not runaway temps)
   HIGH_TEMP: 43, // °C (increased from 40)
   CRITICAL_VOLTAGE: 85, // % (lowered from 87)
   CRITICAL_BATTERY: 15, // % (lowered from 20)
@@ -58,39 +59,46 @@ const generateBatteryHealth = (batteryLevel: number, cycleCount: number) => {
   // Determine risk level based on multiple factors
   let riskLevel: BatteryRiskLevel = 'low';
   
-  // Adjust temperature generation to make high temperatures rarer
-  // Most batteries will be between 20-35°C, with a small chance of being hotter
+  // Adjust temperature generation to include thermal runaway scenarios
   const tempBase = 20 + (Math.random() * 15); // 20-35°C base temperature
   const isOverheating = Math.random() < 0.08; // 8% chance of overheating
-  const temperature = isOverheating 
-    ? 35 + (Math.random() * 15) // Overheating: 35-50°C
-    : tempBase;
+  const isThermalRunaway = isOverheating && Math.random() < 0.15; // 15% of overheating batteries go into thermal runaway
+  
+  const temperature = isThermalRunaway
+    ? 150 + (Math.random() * 50) // Thermal runaway: 150-200°C
+    : isOverheating 
+      ? 35 + (Math.random() * 15) // Normal overheating: 35-50°C
+      : tempBase;
   
   // Adjust voltage stability to be generally higher
-  const voltageStability = 90 + (Math.random() * 10); // 90-100%
+  const voltageStability = isThermalRunaway
+    ? 40 + (Math.random() * 20) // 40-60% during thermal runaway
+    : 90 + (Math.random() * 10); // 90-100% normal
   
   // Determine if emergency response is required
   // Make it primarily temperature-driven
   const requiresEmergencyResponse = 
+    temperature >= EMERGENCY_THRESHOLDS.THERMAL_RUNAWAY || 
     temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP || 
     (temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP && batteryLevel < EMERGENCY_THRESHOLDS.CRITICAL_BATTERY);
   
   if (
+    temperature >= EMERGENCY_THRESHOLDS.THERMAL_RUNAWAY ||
     temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP || 
     (temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP && batteryLevel < EMERGENCY_THRESHOLDS.CRITICAL_BATTERY) ||
-    cycleCount > 900 // Increased from 800
+    cycleCount > 900
   ) {
     riskLevel = 'critical';
   } else if (
     temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP ||
-    (batteryLevel < 25 && temperature > 38) || // Adjusted conditions
-    cycleCount > 700 // Increased from 500
+    (batteryLevel < 25 && temperature > 38) ||
+    cycleCount > 700
   ) {
     riskLevel = 'high';
   } else if (
-    temperature > 38 || // Increased from 35
+    temperature > 38 ||
     batteryLevel < 30 ||
-    cycleCount > 500 // Increased from 300
+    cycleCount > 500
   ) {
     riskLevel = 'moderate';
   }
@@ -197,15 +205,71 @@ function App() {
   // Get dangerous vehicles (critical temperature)
   const dangerousVehicles = useMemo(() => 
     mockVehicles.filter(v => 
-      v.batteryHealth.temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP &&
+      v.batteryHealth.temperature >= EMERGENCY_THRESHOLDS.THERMAL_RUNAWAY &&
       // Only include if there's no active incident for this vehicle
       !emergencyIncidents.some(incident => 
         incident.vehicleId === v.id && 
         (incident.status === 'pending' || incident.status === 'responded')
       )
     ),
-    [emergencyIncidents] // Add emergencyIncidents as dependency
+    [emergencyIncidents]
   );
+
+  // Monitor vehicles for emergency situations
+  useEffect(() => {
+    const checkForEmergencies = () => {
+      mockVehicles.forEach(vehicle => {
+        // Only create emergency incidents for thermal runaway
+        if (
+          vehicle.batteryHealth.temperature >= EMERGENCY_THRESHOLDS.THERMAL_RUNAWAY && 
+          // Check that there isn't already an active incident for this vehicle
+          !emergencyIncidents.some(incident => 
+            incident.vehicleId === vehicle.id && 
+            (incident.status === 'pending' || incident.status === 'responded')
+          )
+        ) {
+          const newIncident = generateEmergencyIncident(vehicle);
+          // Update state immutably, ensuring no duplicates
+          setEmergencyIncidents(prev => {
+            // Check if this incident already exists
+            const exists = prev.some(i => i.id === newIncident.id);
+            if (exists) return prev;
+            return [...prev, newIncident];
+          });
+          
+          // Log the emergency
+          console.log('🚨 THERMAL RUNAWAY ALERT:', {
+            timestamp: new Date().toISOString(),
+            vehicle: {
+              id: vehicle.id,
+              type: vehicle.type,
+              model: vehicle.model,
+              location: vehicle.location
+            },
+            batteryHealth: {
+              temperature: vehicle.batteryHealth.temperature,
+              voltageStability: vehicle.batteryHealth.voltageStability,
+              batteryLevel: vehicle.batteryLevel
+            },
+            incidentId: newIncident.id
+          });
+
+          // Always alert fire department for thermal runaway
+          console.log('🚒 ALERTING FIRE DEPARTMENT - THERMAL RUNAWAY:', {
+            incidentId: newIncident.id,
+            location: vehicle.location,
+            temperature: vehicle.batteryHealth.temperature
+          });
+        }
+      });
+    };
+
+    // Check every 30 seconds
+    const interval = setInterval(checkForEmergencies, 30000);
+    checkForEmergencies(); // Initial check
+
+    return () => clearInterval(interval);
+  }, [emergencyIncidents]);
 
   // Function to focus on a specific vehicle
   const focusOnVehicle = (vehicle: Vehicle) => {
@@ -216,13 +280,21 @@ function App() {
     });
     setSelectedVehicle(vehicle);
     
-    // Create a new incident for this vehicle if it doesn't already have one
-    if (!emergencyIncidents.some(incident => 
-      incident.vehicleId === vehicle.id && 
-      (incident.status === 'pending' || incident.status === 'responded')
-    )) {
+    // Only create emergency incidents for thermal runaway
+    if (
+      vehicle.batteryHealth.temperature >= EMERGENCY_THRESHOLDS.THERMAL_RUNAWAY &&
+      !emergencyIncidents.some(incident => 
+        incident.vehicleId === vehicle.id && 
+        (incident.status === 'pending' || incident.status === 'responded')
+      )
+    ) {
       const newIncident = generateEmergencyIncident(vehicle);
-      setEmergencyIncidents(prev => [...prev, newIncident]);
+      setEmergencyIncidents(prev => {
+        // Check if this incident already exists
+        const exists = prev.some(i => i.id === newIncident.id);
+        if (exists) return prev;
+        return [...prev, newIncident];
+      });
     }
   };
 
@@ -251,56 +323,6 @@ function App() {
   }), []);
 
   const shouldShowIndividualMarkers = viewState.zoom >= 14;
-
-  // Monitor vehicles for emergency situations
-  useEffect(() => {
-    const checkForEmergencies = () => {
-      mockVehicles.forEach(vehicle => {
-        if (
-          vehicle.batteryHealth.requiresEmergencyResponse && 
-          !emergencyIncidents.some(incident => 
-            incident.vehicleId === vehicle.id && 
-            incident.status !== 'resolved'
-          )
-        ) {
-          const newIncident = generateEmergencyIncident(vehicle);
-          setEmergencyIncidents(prev => [...prev, newIncident]);
-          
-          // Log the emergency
-          console.log('🚨 EMERGENCY ALERT:', {
-            timestamp: new Date().toISOString(),
-            vehicle: {
-              id: vehicle.id,
-              type: vehicle.type,
-              model: vehicle.model,
-              location: vehicle.location
-            },
-            batteryHealth: {
-              temperature: vehicle.batteryHealth.temperature,
-              voltageStability: vehicle.batteryHealth.voltageStability,
-              batteryLevel: vehicle.batteryLevel
-            },
-            incidentId: newIncident.id
-          });
-
-          // Simulate automatic notification to authorities
-          if (vehicle.batteryHealth.temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP) {
-            console.log('🚒 ALERTING FIRE DEPARTMENT:', {
-              incidentId: newIncident.id,
-              location: vehicle.location,
-              temperature: vehicle.batteryHealth.temperature
-            });
-          }
-        }
-      });
-    };
-
-    // Check every 30 seconds
-    const interval = setInterval(checkForEmergencies, 30000);
-    checkForEmergencies(); // Initial check
-
-    return () => clearInterval(interval);
-  }, [emergencyIncidents]);
 
   const focusLocation = (latitude: number, longitude: number) => {
     setViewState({
