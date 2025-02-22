@@ -256,23 +256,44 @@ function App() {
           />
         </Source>
 
-        {shouldShowIndividualMarkers && mockVehicles.map(vehicle => (
-          <Marker
-            key={vehicle.id}
-            latitude={vehicle.location.latitude}
-            longitude={vehicle.location.longitude}
-            onClick={e => {
-              e.originalEvent.stopPropagation();
-              setSelectedVehicle(vehicle);
-            }}
-          >
-            {vehicle.type === 'bike' ? (
-              <BikeIcon className={`w-8 h-8 ${getBatteryColor(vehicle.batteryLevel)} cursor-pointer`} />
-            ) : (
-              <Zap className={`w-8 h-8 ${getBatteryColor(vehicle.batteryLevel)} cursor-pointer`} />
-            )}
-          </Marker>
-        ))}
+        {shouldShowIndividualMarkers && mockVehicles.map(vehicle => {
+          const isCriticalCharge = vehicle.batteryLevel <= 20;
+          const isCriticalHealth = vehicle.batteryHealth.temperature > 40;
+          const isMediumCharge = vehicle.batteryLevel <= 50;
+          const isModerateHealth = vehicle.batteryHealth.temperature > 35;
+          
+          let statusColor = 'text-green-500';
+          let healthDotColor = 'bg-green-500';
+          
+          if (isCriticalCharge || isCriticalHealth) {
+            statusColor = 'text-red-500';
+            healthDotColor = 'bg-red-500';
+          } else if (isMediumCharge || isModerateHealth) {
+            statusColor = 'text-yellow-500';
+            healthDotColor = 'bg-yellow-500';
+          }
+
+          return (
+            <Marker
+              key={vehicle.id}
+              latitude={vehicle.location.latitude}
+              longitude={vehicle.location.longitude}
+              onClick={e => {
+                e.originalEvent.stopPropagation();
+                setSelectedVehicle(vehicle);
+              }}
+            >
+              <div className="relative">
+                {vehicle.type === 'bike' ? (
+                  <BikeIcon className={`w-8 h-8 ${statusColor} cursor-pointer`} />
+                ) : (
+                  <Zap className={`w-8 h-8 ${statusColor} cursor-pointer`} />
+                )}
+                <div className={`absolute -top-1 -right-1 w-3 h-3 ${healthDotColor} rounded-full border-2 border-white shadow-sm`} />
+              </div>
+            </Marker>
+          );
+        })}
 
         {selectedVehicle && (
           <Popup
