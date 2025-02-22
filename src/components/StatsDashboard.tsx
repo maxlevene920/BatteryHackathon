@@ -1,5 +1,5 @@
 import React from 'react';
-import { Battery, Bike, Zap, Thermometer, AlertTriangle, Flame, AlertOctagon } from 'lucide-react';
+import { Battery, Bike, Zap, Thermometer, AlertTriangle, Flame, AlertOctagon, CheckCircle } from 'lucide-react';
 import type { Vehicle, BatteryStats } from '../types';
 
 interface StatsDashboardProps {
@@ -13,6 +13,11 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
     moderate: number;
     safe: number;
   };
+  combinedHealth: {
+    critical: number; // Either charge critical or health critical/high
+    medium: number;  // Either charge medium or health moderate
+    healthy: number; // Both charge and health good
+  };
 } => {
   const stats: BatteryStats & {
     temperatureRisk: {
@@ -20,6 +25,11 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       high: number;
       moderate: number;
       safe: number;
+    };
+    combinedHealth: {
+      critical: number;
+      medium: number;
+      healthy: number;
     };
   } = {
     totalVehicles: vehicles.length,
@@ -41,6 +51,11 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       high: 0,
       moderate: 0,
       safe: 0,
+    },
+    combinedHealth: {
+      critical: 0,
+      medium: 0,
+      healthy: 0,
     },
   };
 
@@ -64,6 +79,20 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       stats.temperatureRisk.moderate++;
     } else {
       stats.temperatureRisk.safe++;
+    }
+
+    // Calculate combined health status
+    const isCriticalCharge = vehicle.batteryLevel <= 20;
+    const isCriticalHealth = temp > 45 || temp > 40; // Critical or High temp
+    const isModerateHealth = temp > 35; // Moderate temp
+    const isMediumCharge = vehicle.batteryLevel <= 50;
+
+    if (isCriticalCharge || isCriticalHealth) {
+      stats.combinedHealth.critical++;
+    } else if (isMediumCharge || isModerateHealth) {
+      stats.combinedHealth.medium++;
+    } else {
+      stats.combinedHealth.healthy++;
     }
 
     // Calculate vehicle type counts
@@ -95,24 +124,57 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ vehicles }) => {
           <h3 className="text-lg font-semibold mb-3">Battery Health</h3>
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-gray-50 p-4 rounded-lg text-center">
-              <Battery className="w-6 h-6 mx-auto mb-2" />
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <Battery className="w-6 h-6" />
+                <Thermometer className="w-5 h-5 text-gray-500" />
+              </div>
               <div className="text-2xl font-bold">{stats.averageBatteryLevel}%</div>
               <div className="text-sm text-gray-600">Average</div>
             </div>
-            <div className="bg-red-50 p-4 rounded-lg text-center">
-              <Battery className="w-6 h-6 mx-auto mb-2 text-red-500" />
-              <div className="text-2xl font-bold text-red-500">{stats.criticalBatteryCount}</div>
+            <div className="bg-red-50 p-4 rounded-lg text-center relative">
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <div className="relative">
+                  <Battery className="w-6 h-6 text-red-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
+                </div>
+                <div className="relative">
+                  <AlertOctagon className="w-5 h-5 text-red-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-red-500">{stats.combinedHealth.critical}</div>
               <div className="text-sm text-gray-600">Critical</div>
+              <div className="text-xs text-gray-500 mt-1">Charge or Health Critical</div>
             </div>
             <div className="bg-yellow-50 p-4 rounded-lg text-center">
-              <Battery className="w-6 h-6 mx-auto mb-2 text-yellow-500" />
-              <div className="text-2xl font-bold text-yellow-500">{stats.mediumBatteryCount}</div>
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <div className="relative">
+                  <Battery className="w-6 h-6 text-yellow-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full" />
+                </div>
+                <div className="relative">
+                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-yellow-500">{stats.combinedHealth.medium}</div>
               <div className="text-sm text-gray-600">Medium</div>
+              <div className="text-xs text-gray-500 mt-1">Charge or Health Warning</div>
             </div>
             <div className="bg-green-50 p-4 rounded-lg text-center">
-              <Battery className="w-6 h-6 mx-auto mb-2 text-green-500" />
-              <div className="text-2xl font-bold text-green-500">{stats.healthyBatteryCount}</div>
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <div className="relative">
+                  <Battery className="w-6 h-6 text-green-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full" />
+                </div>
+                <div className="relative">
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-green-500">{stats.combinedHealth.healthy}</div>
               <div className="text-sm text-gray-600">Healthy</div>
+              <div className="text-xs text-gray-500 mt-1">Charge and Health Good</div>
             </div>
           </div>
         </div>
