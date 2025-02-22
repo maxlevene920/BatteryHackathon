@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Map, { Marker, Popup, Source, Layer } from 'react-map-gl';
-import { Battery, Bike as BikeIcon, Zap } from 'lucide-react';
+import { Battery, Bike as BikeIcon, Zap, AlertTriangle } from 'lucide-react';
 import { VehicleDashboard } from './components/VehicleDashboard';
 import { StatsDashboard } from './components/StatsDashboard';
-import type { Vehicle, BatteryRiskLevel } from './types';
+import { EmergencyDashboard } from './components/EmergencyDashboard';
+import type { Vehicle, BatteryRiskLevel, EmergencyIncident } from './types';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -32,36 +33,64 @@ const VEHICLE_MODELS = {
   scooters: ['Speeder-S1', 'City-Glide', 'Max-R']
 };
 
+// Emergency response thresholds
+const EMERGENCY_THRESHOLDS = {
+  CRITICAL_TEMP: 47, // °C (increased from 45)
+  HIGH_TEMP: 43, // °C (increased from 40)
+  CRITICAL_VOLTAGE: 85, // % (lowered from 87)
+  CRITICAL_BATTERY: 15, // % (lowered from 20)
+};
+
+const generateEmergencyIncident = (vehicle: Vehicle): EmergencyIncident => {
+  return {
+    id: `incident-${Date.now()}-${vehicle.id}`,
+    vehicleId: vehicle.id,
+    timestamp: new Date().toISOString(),
+    location: vehicle.location,
+    temperature: vehicle.batteryHealth.temperature,
+    batteryLevel: vehicle.batteryLevel,
+    riskLevel: vehicle.batteryHealth.riskLevel,
+    status: 'pending'
+  };
+};
+
 const generateBatteryHealth = (batteryLevel: number, cycleCount: number) => {
   // Determine risk level based on multiple factors
   let riskLevel: BatteryRiskLevel = 'low';
-  const temperature = 20 + Math.random() * 30; // 20-50°C
-  const voltageStability = 85 + Math.random() * 15; // 85-100%
   
-  // Risk factors:
-  // 1. High temperature (> 45°C is dangerous)
-  // 2. Low voltage stability (< 90% is concerning)
-  // 3. High cycle count (> 500 is concerning)
-  // 4. Low battery level with high temperature
+  // Adjust temperature generation to make high temperatures rarer
+  // Most batteries will be between 20-35°C, with a small chance of being hotter
+  const tempBase = 20 + (Math.random() * 15); // 20-35°C base temperature
+  const isOverheating = Math.random() < 0.08; // 8% chance of overheating
+  const temperature = isOverheating 
+    ? 35 + (Math.random() * 15) // Overheating: 35-50°C
+    : tempBase;
+  
+  // Adjust voltage stability to be generally higher
+  const voltageStability = 90 + (Math.random() * 10); // 90-100%
+  
+  // Determine if emergency response is required
+  // Make it primarily temperature-driven
+  const requiresEmergencyResponse = 
+    temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP || 
+    (temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP && batteryLevel < EMERGENCY_THRESHOLDS.CRITICAL_BATTERY);
   
   if (
-    temperature > 45 || 
-    voltageStability < 87 ||
-    (batteryLevel < 20 && temperature > 40) ||
-    cycleCount > 800
+    temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP || 
+    (temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP && batteryLevel < EMERGENCY_THRESHOLDS.CRITICAL_BATTERY) ||
+    cycleCount > 900 // Increased from 800
   ) {
     riskLevel = 'critical';
   } else if (
-    temperature > 40 ||
-    voltageStability < 90 ||
-    (batteryLevel < 30 && temperature > 35) ||
-    cycleCount > 500
+    temperature > EMERGENCY_THRESHOLDS.HIGH_TEMP ||
+    (batteryLevel < 25 && temperature > 38) || // Adjusted conditions
+    cycleCount > 700 // Increased from 500
   ) {
     riskLevel = 'high';
   } else if (
-    temperature > 35 ||
-    voltageStability < 95 ||
-    cycleCount > 300
+    temperature > 38 || // Increased from 35
+    batteryLevel < 30 ||
+    cycleCount > 500 // Increased from 300
   ) {
     riskLevel = 'moderate';
   }
@@ -70,8 +99,9 @@ const generateBatteryHealth = (batteryLevel: number, cycleCount: number) => {
     riskLevel,
     temperature,
     cycleCount,
-    lastInspectionDate: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(), // Random date within last 30 days
-    voltageStability
+    lastInspectionDate: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
+    voltageStability,
+    requiresEmergencyResponse
   };
 };
 
@@ -126,12 +156,13 @@ const generateVehicles = (count: number): Vehicle[] => {
       };
     }
 
-    const type = Math.random() > 0.4 ? 'bike' : 'scooter'; // 60% bikes, 40% scooters
+    const type = Math.random() > 0.4 ? 'bike' : 'scooter';
     const models = type === 'bike' ? VEHICLE_MODELS.bikes : VEHICLE_MODELS.scooters;
     const model = models[Math.floor(Math.random() * models.length)];
     
-    const batteryLevel = Math.floor(Math.random() * 100);
-    const cycleCount = Math.floor(Math.random() * 1000); // 0-1000 cycles
+    // Adjust battery level generation to favor higher levels
+    const batteryLevel = Math.floor(20 + (Math.random() * Math.random() * 80)); // Tends towards higher values
+    const cycleCount = Math.floor(Math.random() * 1000);
     const batteryHealth = generateBatteryHealth(batteryLevel, cycleCount);
     
     const statuses: Array<'available' | 'in-use' | 'maintenance'> = ['available', 'in-use', 'maintenance'];
@@ -156,14 +187,47 @@ const mockVehicles = generateVehicles(200);
 
 function App() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [emergencyIncidents, setEmergencyIncidents] = useState<EmergencyIncident[]>([]);
   const [viewState, setViewState] = useState({
     latitude: 40.7128,
     longitude: -74.0060,
     zoom: 11
   });
 
+  // Get dangerous vehicles (critical temperature)
+  const dangerousVehicles = useMemo(() => 
+    mockVehicles.filter(v => 
+      v.batteryHealth.temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP &&
+      // Only include if there's no active incident for this vehicle
+      !emergencyIncidents.some(incident => 
+        incident.vehicleId === v.id && 
+        (incident.status === 'pending' || incident.status === 'responded')
+      )
+    ),
+    [emergencyIncidents] // Add emergencyIncidents as dependency
+  );
+
+  // Function to focus on a specific vehicle
+  const focusOnVehicle = (vehicle: Vehicle) => {
+    setViewState({
+      latitude: vehicle.location.latitude,
+      longitude: vehicle.location.longitude,
+      zoom: 16
+    });
+    setSelectedVehicle(vehicle);
+    
+    // Create a new incident for this vehicle if it doesn't already have one
+    if (!emergencyIncidents.some(incident => 
+      incident.vehicleId === vehicle.id && 
+      (incident.status === 'pending' || incident.status === 'responded')
+    )) {
+      const newIncident = generateEmergencyIncident(vehicle);
+      setEmergencyIncidents(prev => [...prev, newIncident]);
+    }
+  };
+
   const getBatteryColor = (level: number) => {
-    if (level <= 20) return 'text-red-500';
+    if (level <= 20) return 'text-yellow-500';
     if (level <= 50) return 'text-yellow-500';
     return 'text-green-500';
   };
@@ -176,7 +240,8 @@ function App() {
         id: vehicle.id,
         batteryLevel: vehicle.batteryLevel,
         status: vehicle.status,
-        type: vehicle.type
+        type: vehicle.type,
+        temperature: vehicle.batteryHealth.temperature
       },
       geometry: {
         type: 'Point' as const,
@@ -186,6 +251,64 @@ function App() {
   }), []);
 
   const shouldShowIndividualMarkers = viewState.zoom >= 14;
+
+  // Monitor vehicles for emergency situations
+  useEffect(() => {
+    const checkForEmergencies = () => {
+      mockVehicles.forEach(vehicle => {
+        if (
+          vehicle.batteryHealth.requiresEmergencyResponse && 
+          !emergencyIncidents.some(incident => 
+            incident.vehicleId === vehicle.id && 
+            incident.status !== 'resolved'
+          )
+        ) {
+          const newIncident = generateEmergencyIncident(vehicle);
+          setEmergencyIncidents(prev => [...prev, newIncident]);
+          
+          // Log the emergency
+          console.log('🚨 EMERGENCY ALERT:', {
+            timestamp: new Date().toISOString(),
+            vehicle: {
+              id: vehicle.id,
+              type: vehicle.type,
+              model: vehicle.model,
+              location: vehicle.location
+            },
+            batteryHealth: {
+              temperature: vehicle.batteryHealth.temperature,
+              voltageStability: vehicle.batteryHealth.voltageStability,
+              batteryLevel: vehicle.batteryLevel
+            },
+            incidentId: newIncident.id
+          });
+
+          // Simulate automatic notification to authorities
+          if (vehicle.batteryHealth.temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP) {
+            console.log('🚒 ALERTING FIRE DEPARTMENT:', {
+              incidentId: newIncident.id,
+              location: vehicle.location,
+              temperature: vehicle.batteryHealth.temperature
+            });
+          }
+        }
+      });
+    };
+
+    // Check every 30 seconds
+    const interval = setInterval(checkForEmergencies, 30000);
+    checkForEmergencies(); // Initial check
+
+    return () => clearInterval(interval);
+  }, [emergencyIncidents]);
+
+  const focusLocation = (latitude: number, longitude: number) => {
+    setViewState({
+      latitude,
+      longitude,
+      zoom: 16
+    });
+  };
 
   return (
     <div className="h-screen w-screen relative overflow-hidden">
@@ -245,7 +368,8 @@ function App() {
             paint={{
               'circle-color': [
                 'case',
-                ['<=', ['get', 'batteryLevel'], 20], '#ef4444',
+                ['>', ['get', 'temperature'], EMERGENCY_THRESHOLDS.CRITICAL_TEMP], '#ef4444',
+                ['<=', ['get', 'batteryLevel'], 20], '#eab308',
                 ['<=', ['get', 'batteryLevel'], 50], '#eab308',
                 '#22c55e'
               ],
@@ -257,18 +381,16 @@ function App() {
         </Source>
 
         {shouldShowIndividualMarkers && mockVehicles.map(vehicle => {
-          const isCriticalCharge = vehicle.batteryLevel <= 20;
-          const isCriticalHealth = vehicle.batteryHealth.temperature > 40;
+          const isCriticalTemp = vehicle.batteryHealth.temperature > EMERGENCY_THRESHOLDS.CRITICAL_TEMP;
           const isMediumCharge = vehicle.batteryLevel <= 50;
-          const isModerateHealth = vehicle.batteryHealth.temperature > 35;
           
           let statusColor = 'text-green-500';
           let healthDotColor = 'bg-green-500';
           
-          if (isCriticalCharge || isCriticalHealth) {
+          if (isCriticalTemp) {
             statusColor = 'text-red-500';
             healthDotColor = 'bg-red-500';
-          } else if (isMediumCharge || isModerateHealth) {
+          } else if (isMediumCharge) {
             statusColor = 'text-yellow-500';
             healthDotColor = 'bg-yellow-500';
           }
@@ -312,6 +434,42 @@ function App() {
         )}
       </Map>
 
+      {/* Danger Zone Quick Navigation */}
+      {dangerousVehicles.length > 0 && (
+        <div className="absolute top-4 right-4 z-50 pointer-events-auto">
+          <div className="bg-red-500 p-4 rounded-lg shadow-lg">
+            <h3 className="text-white font-bold flex items-center gap-2 mb-3">
+              <AlertTriangle className="w-5 h-5" />
+              Critical Temperature Alerts
+            </h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {dangerousVehicles.map(vehicle => (
+                <button
+                  key={vehicle.id}
+                  onClick={() => focusOnVehicle(vehicle)}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white p-2 rounded flex items-center justify-between text-sm"
+                >
+                  <span>{vehicle.type === 'bike' ? '🚲' : '🛴'} #{vehicle.id}</span>
+                  <span>{vehicle.batteryHealth.temperature.toFixed(1)}°C</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Emergency Alerts */}
+      {emergencyIncidents.length > 0 && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-auto">
+          <div className="bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            <span>
+              {emergencyIncidents.filter(i => i.status === 'pending').length} Active Emergency Alerts
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Main UI Container */}
       <div className="absolute inset-4 pointer-events-none">
         <div className="w-full h-full flex justify-between">
@@ -332,6 +490,28 @@ function App() {
           <div className="flex flex-col gap-4 w-96 pointer-events-auto max-h-full">
             <div className="scroll-container overflow-y-auto">
               <StatsDashboard vehicles={mockVehicles} />
+              
+              {emergencyIncidents.length > 0 && (
+                <div className="mt-4">
+                  <EmergencyDashboard
+                    incidents={emergencyIncidents}
+                    onUpdateIncident={(updatedIncident) => {
+                      setEmergencyIncidents(prev =>
+                        prev.map(incident =>
+                          incident.id === updatedIncident.id ? updatedIncident : incident
+                        )
+                      );
+                      
+                      // Log status changes
+                      console.log(`📝 Incident ${updatedIncident.id} status updated to ${updatedIncident.status}`, {
+                        timestamp: new Date().toISOString(),
+                        incident: updatedIncident
+                      });
+                    }}
+                    onFocusLocation={focusLocation}
+                  />
+                </div>
+              )}
               
               <div className="bg-white p-4 rounded-lg shadow-lg mt-4">
                 <h2 className="text-lg font-semibold mb-2">Map Legend</h2>
