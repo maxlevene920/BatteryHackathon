@@ -489,7 +489,17 @@ function App() {
           {/* Right Side */}
           <div className="flex flex-col gap-4 w-96 pointer-events-auto max-h-full">
             <div className="scroll-container overflow-y-auto">
-              <StatsDashboard vehicles={mockVehicles} />
+              <StatsDashboard 
+                vehicles={mockVehicles} 
+                onFocusVehicle={(vehicle) => {
+                  setViewState({
+                    latitude: vehicle.location.latitude,
+                    longitude: vehicle.location.longitude,
+                    zoom: 16
+                  });
+                  setSelectedVehicle(vehicle);
+                }}
+              />
               
               {emergencyIncidents.length > 0 && (
                 <div className="mt-4">

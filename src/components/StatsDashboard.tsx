@@ -1,9 +1,10 @@
 import React from 'react';
-import { Battery, Bike, Zap, Thermometer, AlertTriangle, Flame, AlertOctagon, CheckCircle } from 'lucide-react';
+import { Battery, Bike, Zap, Thermometer, AlertTriangle, Flame, AlertOctagon, CheckCircle, History, AlertCircle, BatteryWarning, MapPin } from 'lucide-react';
 import type { Vehicle, BatteryStats } from '../types';
 
 interface StatsDashboardProps {
   vehicles: Vehicle[];
+  onFocusVehicle?: (vehicle: Vehicle) => void;
 }
 
 const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
@@ -14,9 +15,18 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
     safe: number;
   };
   combinedHealth: {
-    critical: number; // Either charge critical or health critical/high
-    medium: number;  // Either charge medium or health moderate
-    healthy: number; // Both charge and health good
+    critical: number;
+    medium: number;
+    healthy: number;
+  };
+  lifecycleRisk: {
+    critical: number;
+    warning: number;
+    moderate: number;
+    healthy: number;
+    averageCycles: number;
+    oldestInspection: number;
+    oldestInspectionVehicle?: Vehicle;
   };
 } => {
   const stats: BatteryStats & {
@@ -30,6 +40,15 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       critical: number;
       medium: number;
       healthy: number;
+    };
+    lifecycleRisk: {
+      critical: number;
+      warning: number;
+      moderate: number;
+      healthy: number;
+      averageCycles: number;
+      oldestInspection: number;
+      oldestInspectionVehicle?: Vehicle;
     };
   } = {
     totalVehicles: vehicles.length,
@@ -57,7 +76,20 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       medium: 0,
       healthy: 0,
     },
+    lifecycleRisk: {
+      critical: 0,
+      warning: 0,
+      moderate: 0,
+      healthy: 0,
+      averageCycles: 0,
+      oldestInspection: 0,
+    },
   };
+
+  let totalCycles = 0;
+  const now = new Date();
+  let oldestInspectionDays = 0;
+  let oldestInspectionVehicle: Vehicle | undefined;
 
   vehicles.forEach(vehicle => {
     // Calculate battery level distributions
@@ -95,6 +127,30 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
       stats.combinedHealth.healthy++;
     }
 
+    // Calculate lifecycle risk
+    const lastInspectionDate = new Date(vehicle.batteryHealth.lastInspectionDate);
+    const daysSinceInspection = Math.floor((now.getTime() - lastInspectionDate.getTime()) / (1000 * 60 * 60 * 24));
+    const cycles = vehicle.batteryHealth.cycleCount;
+
+    totalCycles += cycles;
+    
+    if (daysSinceInspection > oldestInspectionDays) {
+      oldestInspectionDays = daysSinceInspection;
+      oldestInspectionVehicle = vehicle;
+      stats.lifecycleRisk.oldestInspection = daysSinceInspection;
+      stats.lifecycleRisk.oldestInspectionVehicle = vehicle;
+    }
+
+    if (cycles > 900 || daysSinceInspection > 45) {
+      stats.lifecycleRisk.critical++;
+    } else if (cycles > 700 || daysSinceInspection > 30) {
+      stats.lifecycleRisk.warning++;
+    } else if (cycles > 500 || daysSinceInspection > 15) {
+      stats.lifecycleRisk.moderate++;
+    } else {
+      stats.lifecycleRisk.healthy++;
+    }
+
     // Calculate vehicle type counts
     stats.byVehicleType[vehicle.type === 'bike' ? 'bikes' : 'scooters']++;
 
@@ -107,11 +163,12 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
 
   // Calculate final average
   stats.averageBatteryLevel = Math.round(stats.averageBatteryLevel / vehicles.length);
+  stats.lifecycleRisk.averageCycles = Math.round(totalCycles / vehicles.length);
 
   return stats;
 };
 
-export const StatsDashboard: React.FC<StatsDashboardProps> = ({ vehicles }) => {
+export const StatsDashboard: React.FC<StatsDashboardProps> = ({ vehicles, onFocusVehicle }) => {
   const stats = calculateStats(vehicles);
 
   return (
@@ -206,6 +263,87 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ vehicles }) => {
               <div className="text-2xl font-bold text-green-500">{stats.temperatureRisk.safe}</div>
               <div className="text-sm text-gray-600">Safe</div>
               <div className="text-xs text-gray-500">≤35°C</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Battery Lifecycle Risk Section */}
+        <div className="col-span-2">
+          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <History className="w-5 h-5 text-purple-500" />
+            Battery Lifecycle Risk
+          </h3>
+          <div className="grid grid-cols-4 gap-4">
+            <div className="bg-red-50 p-4 rounded-lg text-center">
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <AlertOctagon className="w-6 h-6 text-red-500" />
+              </div>
+              <div className="text-2xl font-bold text-red-500">{stats.lifecycleRisk.critical}</div>
+              <div className="text-sm text-gray-600">Critical</div>
+              <div className="text-xs text-gray-500 mt-1">&gt;900 cycles or 45+ days</div>
+            </div>
+            <div className="bg-orange-50 p-4 rounded-lg text-center">
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <AlertCircle className="w-6 h-6 text-orange-500" />
+              </div>
+              <div className="text-2xl font-bold text-orange-500">{stats.lifecycleRisk.warning}</div>
+              <div className="text-sm text-gray-600">Warning</div>
+              <div className="text-xs text-gray-500 mt-1">&gt;700 cycles or 30+ days</div>
+            </div>
+            <div className="bg-yellow-50 p-4 rounded-lg text-center">
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <AlertTriangle className="w-6 h-6 text-yellow-500" />
+              </div>
+              <div className="text-2xl font-bold text-yellow-500">{stats.lifecycleRisk.moderate}</div>
+              <div className="text-sm text-gray-600">Moderate</div>
+              <div className="text-xs text-gray-500 mt-1">&gt;500 cycles or 15+ days</div>
+            </div>
+            <div className="bg-green-50 p-4 rounded-lg text-center">
+              <div className="flex justify-center items-center gap-2 mb-2">
+                <CheckCircle className="w-6 h-6 text-green-500" />
+              </div>
+              <div className="text-2xl font-bold text-green-500">{stats.lifecycleRisk.healthy}</div>
+              <div className="text-sm text-gray-600">Healthy</div>
+              <div className="text-xs text-gray-500 mt-1">Recent inspection</div>
+            </div>
+          </div>
+
+          {/* Lifecycle Metrics */}
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div className="bg-purple-50 p-4 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <History className="w-5 h-5 text-purple-500" />
+                <span className="font-semibold">Average Cycles</span>
+              </div>
+              <div className="text-2xl font-bold text-purple-600">
+                {stats.lifecycleRisk.averageCycles}
+                <span className="text-sm text-purple-400 ml-1">cycles</span>
+              </div>
+            </div>
+            <div 
+              className={`bg-purple-50 p-4 rounded-lg ${onFocusVehicle && stats.lifecycleRisk.oldestInspectionVehicle ? 'cursor-pointer hover:bg-purple-100' : ''}`}
+              onClick={() => {
+                if (onFocusVehicle && stats.lifecycleRisk.oldestInspectionVehicle) {
+                  onFocusVehicle(stats.lifecycleRisk.oldestInspectionVehicle);
+                }
+              }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="w-5 h-5 text-purple-500" />
+                <span className="font-semibold">Oldest Inspection</span>
+                {onFocusVehicle && stats.lifecycleRisk.oldestInspectionVehicle && (
+                  <MapPin className="w-4 h-4 text-purple-500 ml-auto" />
+                )}
+              </div>
+              <div className="text-2xl font-bold text-purple-600">
+                {stats.lifecycleRisk.oldestInspection}
+                <span className="text-sm text-purple-400 ml-1">days ago</span>
+                {onFocusVehicle && stats.lifecycleRisk.oldestInspectionVehicle && (
+                  <div className="text-sm text-purple-400 font-normal mt-1">
+                    Click to view {stats.lifecycleRisk.oldestInspectionVehicle.type} #{stats.lifecycleRisk.oldestInspectionVehicle.id}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
