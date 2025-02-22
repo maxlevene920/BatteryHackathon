@@ -103,11 +103,11 @@ const calculateStats = (vehicles: Vehicle[]): BatteryStats & {
 
     // Calculate temperature risk distributions
     const temp = vehicle.batteryHealth.temperature;
-    if (temp > 45) {
+    if (temp >= 150) { // Thermal runaway
       stats.temperatureRisk.critical++;
-    } else if (temp > 40) {
+    } else if (temp > 45) {
       stats.temperatureRisk.high++;
-    } else if (temp > 35) {
+    } else if (temp > 40) {
       stats.temperatureRisk.moderate++;
     } else {
       stats.temperatureRisk.safe++;
@@ -243,26 +243,26 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ vehicles, onFocu
             <div className="bg-red-50 p-4 rounded-lg text-center">
               <AlertOctagon className="w-6 h-6 mx-auto mb-2 text-red-500" />
               <div className="text-2xl font-bold text-red-500">{stats.temperatureRisk.critical}</div>
-              <div className="text-sm text-gray-600">Critical</div>
-              <div className="text-xs text-gray-500">&gt;45°C</div>
+              <div className="text-sm text-gray-600">Thermal Runaway</div>
+              <div className="text-xs text-gray-500">150-200°C</div>
             </div>
             <div className="bg-orange-50 p-4 rounded-lg text-center">
               <Flame className="w-6 h-6 mx-auto mb-2 text-orange-500" />
               <div className="text-2xl font-bold text-orange-500">{stats.temperatureRisk.high}</div>
               <div className="text-sm text-gray-600">High</div>
-              <div className="text-xs text-gray-500">&gt;40°C</div>
+              <div className="text-xs text-gray-500">&gt;45°C</div>
             </div>
             <div className="bg-yellow-50 p-4 rounded-lg text-center">
               <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-yellow-500" />
               <div className="text-2xl font-bold text-yellow-500">{stats.temperatureRisk.moderate}</div>
               <div className="text-sm text-gray-600">Moderate</div>
-              <div className="text-xs text-gray-500">&gt;35°C</div>
+              <div className="text-xs text-gray-500">&gt;40°C</div>
             </div>
             <div className="bg-green-50 p-4 rounded-lg text-center">
               <Thermometer className="w-6 h-6 mx-auto mb-2 text-green-500" />
               <div className="text-2xl font-bold text-green-500">{stats.temperatureRisk.safe}</div>
               <div className="text-sm text-gray-600">Safe</div>
-              <div className="text-xs text-gray-500">≤35°C</div>
+              <div className="text-xs text-gray-500">≤40°C</div>
             </div>
           </div>
         </div>
