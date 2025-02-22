@@ -2,12 +2,33 @@ export type VehicleType = 'bike' | 'scooter';
 
 export type BatteryRiskLevel = 'low' | 'moderate' | 'high' | 'critical';
 
+export interface EmergencyIncident {
+  id: string;
+  vehicleId: string;
+  timestamp: string;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  temperature: number;
+  batteryLevel: number;
+  riskLevel: BatteryRiskLevel;
+  status: 'pending' | 'responded' | 'resolved';
+  responseDetails?: {
+    respondedAt?: string;
+    resolvedAt?: string;
+    notes?: string;
+  };
+}
+
 export interface BatteryHealth {
   riskLevel: BatteryRiskLevel;
   temperature: number; // in Celsius
   cycleCount: number;
   lastInspectionDate: string;
   voltageStability: number; // percentage of stability
+  requiresEmergencyResponse?: boolean;
+  lastIncidentId?: string;
 }
 
 export interface Vehicle {
